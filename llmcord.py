@@ -102,14 +102,12 @@ async def on_ready() -> None:
 
     await discord_bot.tree.sync()
 
-
 @discord_bot.event
 async def on_message(new_msg: discord.Message) -> None:
     global last_task_time
 
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
-    # Always ignore bot messages
     if new_msg.author.bot:
         return
 
@@ -128,19 +126,20 @@ async def on_message(new_msg: discord.Message) -> None:
         (perm["allowed_ids"], perm["blocked_ids"]) for perm in (permissions["users"], permissions["roles"], permissions["channels"])
     )
 
-    allow_all_users = not allowed_user_ids if is_dm else not allowed_user_ids and not allowed_role_ids
-    is_good_user = user_is_admin or allow_all_users or new_msg.author.id in allowed_user_ids or any(id in allowed_role_ids for id in role_ids)
+    # Check if explicitly allowed (admins or in allow lists) - these bypass the mention requirement
+    is_explicit_good_user = user_is_admin or new_msg.author.id in allowed_user_ids or any(id in allowed_role_ids for id in role_ids)
+    is_explicit_good_channel = user_is_admin or any(id in allowed_channel_ids for id in channel_ids)
 
-    allow_all_channels = not allowed_channel_ids
-    is_good_channel = (user_is_admin or allow_dms) if is_dm else (allow_all_channels or any(id in allowed_channel_ids for id in channel_ids))
-
-    # NEW LOGIC: Check if we should respond without mention
-    # Respond without mention if: DM, good channel, or good user
-    respond_without_mention = is_dm or is_good_channel or is_good_user
-    
-    # If we shouldn't respond without mention, require a mention/tag
-    if not respond_without_mention and discord_bot.user not in new_msg.mentions:
+    # NEW LOGIC: Require mention UNLESS it's a DM, good channel, or good user
+    if not is_dm and not is_explicit_good_channel and not is_explicit_good_user and discord_bot.user not in new_msg.mentions:
         return
+
+    # Original permission logic to determine if user is allowed at all
+    allow_all_users = not allowed_user_ids if is_dm else not allowed_user_ids and not allowed_role_ids
+    allow_all_channels = not allowed_channel_ids
+
+    is_good_user = user_is_admin or allow_all_users or is_explicit_good_user
+    is_good_channel = (user_is_admin or allow_dms) if is_dm else (allow_all_channels or is_explicit_good_channel)
 
     is_bad_user = not is_good_user or new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
     is_bad_channel = not is_good_channel or any(id in blocked_channel_ids for id in channel_ids)
