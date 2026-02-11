@@ -134,8 +134,12 @@ async def on_message(new_msg: discord.Message) -> None:
     allow_all_channels = not allowed_channel_ids
     is_good_channel = (user_is_admin or allow_dms) if is_dm else (allow_all_channels or any(id in allowed_channel_ids for id in channel_ids))
 
-    # NEW LOGIC: In non-DMs, require mention UNLESS it's a good channel OR good user
-    if not is_dm and not (discord_bot.user in new_msg.mentions or is_good_channel or is_good_user):
+    # NEW LOGIC: Check if we should respond without mention
+    # Respond without mention if: DM, good channel, or good user
+    respond_without_mention = is_dm or is_good_channel or is_good_user
+    
+    # If we shouldn't respond without mention, require a mention/tag
+    if not respond_without_mention and discord_bot.user not in new_msg.mentions:
         return
 
     is_bad_user = not is_good_user or new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
@@ -144,7 +148,7 @@ async def on_message(new_msg: discord.Message) -> None:
     if is_bad_user or is_bad_channel:
         return
 
-    # ... rest of the function remains unchanged ...
+    # ... rest of the function remains exactly the same ...
     provider_slash_model = curr_model
     provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
 
