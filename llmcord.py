@@ -115,36 +115,41 @@ async def on_message(new_msg: discord.Message) -> None:
     channel_ids = set(filter(None, (new_msg.channel.id, getattr(new_msg.channel, "parent_id", None), getattr(new_msg.channel, "category_id", None))))
 
     config = await asyncio.to_thread(get_config)
-
     allow_dms = config.get("allow_dms", True)
-
     permissions = config["permissions"]
 
     user_is_admin = new_msg.author.id in permissions["users"]["admin_ids"]
 
-    (allowed_user_ids, blocked_user_ids), (allowed_role_ids, blocked_role_ids), (allowed_channel_ids, blocked_channel_ids) = (
-        (perm["allowed_ids"], perm["blocked_ids"]) for perm in (permissions["users"], permissions["roles"], permissions["channels"])
-    )
+    # Get permission lists
+    allowed_user_ids = permissions["users"].get("allowed_ids", [])
+    blocked_user_ids = permissions["users"].get("blocked_ids", [])
+    allowed_role_ids = permissions["roles"].get("allowed_ids", [])
+    blocked_role_ids = permissions["roles"].get("blocked_ids", [])
+    allowed_channel_ids = permissions["channels"].get("allowed_ids", [])
+    blocked_channel_ids = permissions["channels"].get("blocked_ids", [])
 
-    # Check if explicitly allowed (admins or in allow lists) - these bypass the mention requirement
-    is_explicit_good_user = user_is_admin or new_msg.author.id in allowed_user_ids or any(id in allowed_role_ids for id in role_ids)
-    is_explicit_good_channel = user_is_admin or any(id in allowed_channel_ids for id in channel_ids)
+    # Check explicit allowlists (for mention bypass only)
+    user_in_allowlist = user_is_admin or new_msg.author.id in allowed_user_ids or any(id in allowed_role_ids for id in role_ids)
+    channel_in_allowlist = user_is_admin or any(id in allowed_channel_ids for id in channel_ids)
 
-    # NEW LOGIC: Require mention UNLESS it's a DM, good channel, or good user
-    if not is_dm and not is_explicit_good_channel and not is_explicit_good_user and discord_bot.user not in new_msg.mentions:
-        return
+    # MENTION LOGIC: 
+    # - Skip mention requirement if: DM, or channel in allowlist, or user in allowlist
+    # - Otherwise require mention
+    if not is_dm and not channel_in_allowlist and not user_in_allowlist:
+        if discord_bot.user not in new_msg.mentions:
+            return
 
-    # Original permission logic to determine if user is allowed at all
-    allow_all_users = not allowed_user_ids if is_dm else not allowed_user_ids and not allowed_role_ids
-    allow_all_channels = not allowed_channel_ids
+    # PERMISSION LOGIC: Everyone is allowed unless blocked
+    # Check if user is blocked
+    user_blocked = new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
+    
+    # Check if channel is blocked (DMs check allow_dms config)
+    if is_dm:
+        channel_blocked = not allow_dms
+    else:
+        channel_blocked = any(id in blocked_channel_ids for id in channel_ids)
 
-    is_good_user = user_is_admin or allow_all_users or is_explicit_good_user
-    is_good_channel = (user_is_admin or allow_dms) if is_dm else (allow_all_channels or is_explicit_good_channel)
-
-    is_bad_user = not is_good_user or new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
-    is_bad_channel = not is_good_channel or any(id in blocked_channel_ids for id in channel_ids)
-
-    if is_bad_user or is_bad_channel:
+    if user_blocked or channel_blocked:
         return
 
     # ... rest of the function remains exactly the same ...
