@@ -109,7 +109,8 @@ async def on_message(new_msg: discord.Message) -> None:
 
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
-    if (not is_dm and discord_bot.user not in new_msg.mentions) or new_msg.author.bot:
+    # Always ignore bot messages
+    if new_msg.author.bot:
         return
 
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
@@ -129,15 +130,21 @@ async def on_message(new_msg: discord.Message) -> None:
 
     allow_all_users = not allowed_user_ids if is_dm else not allowed_user_ids and not allowed_role_ids
     is_good_user = user_is_admin or allow_all_users or new_msg.author.id in allowed_user_ids or any(id in allowed_role_ids for id in role_ids)
-    is_bad_user = not is_good_user or new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
 
     allow_all_channels = not allowed_channel_ids
-    is_good_channel = user_is_admin or allow_dms if is_dm else allow_all_channels or any(id in allowed_channel_ids for id in channel_ids)
+    is_good_channel = (user_is_admin or allow_dms) if is_dm else (allow_all_channels or any(id in allowed_channel_ids for id in channel_ids))
+
+    # NEW LOGIC: In non-DMs, require mention UNLESS it's a good channel OR good user
+    if not is_dm and not (discord_bot.user in new_msg.mentions or is_good_channel or is_good_user):
+        return
+
+    is_bad_user = not is_good_user or new_msg.author.id in blocked_user_ids or any(id in blocked_role_ids for id in role_ids)
     is_bad_channel = not is_good_channel or any(id in blocked_channel_ids for id in channel_ids)
 
     if is_bad_user or is_bad_channel:
         return
 
+    # ... rest of the function remains unchanged ...
     provider_slash_model = curr_model
     provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
 
